@@ -1,0 +1,122 @@
+From 0e3036626ebbd05f43870f45dd1d69784170ce18 Mon Sep 17 00:00:00 2001
+From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
+Date: Sat, 27 Jan 2024 00:26:04 +0000
+Subject: [PATCH 11/11] untouched
+
+---
+ fs/ext4/fast_commit.c | 24 ++++++++++++++++--------
+ fs/ext4/inode.c       | 13 +++++++++++--
+ 2 files changed, 27 insertions(+), 10 deletions(-)
+
+diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
+index 7492793e7748..9f424c3e9cab 100644
+--- a/fs/ext4/fast_commit.c
++++ b/fs/ext4/fast_commit.c
+@@ -533,6 +533,8 @@ static int __track_inode(struct inode *inode, void *arg, bool update)
+ }
+ 
+ void ext4_fc_track_inode(handle_t *handle, struct inode *inode)
++__acquires(fc_committing_lock)
++__releases(fc_committing_lock)
+ {
+ 	struct ext4_inode_info *ei = EXT4_I(inode);
+ 	wait_queue_head_t *wq;
+@@ -555,17 +557,17 @@ void ext4_fc_track_inode(handle_t *handle, struct inode *inode)
+ 
+ 	if (!test_opt2(inode->i_sb, JOURNAL_FAST_COMMIT) ||
+ 	    (EXT4_SB(inode->i_sb)->s_mount_state & EXT4_FC_REPLAY) ||
+-		ext4_test_mount_flag(inode->i_sb, EXT4_MF_FC_INELIGIBLE) ||
+-		!list_empty(&ei->i_fc_list))
++	    ext4_test_mount_flag(inode->i_sb, EXT4_MF_FC_INELIGIBLE))
+ 		return;
+ 
+ 	/*
+ 	 * If we come here, we may sleep while waiting for the inode to
+-	 * commit. We shouldn't be holding i_data_sem in write mode when we go
+-	 * to sleep since the commit path needs to grab the lock while
+-	 * committing the inode.
++	 * commit. We shouldn't be holding i_data_sem when we go to sleep since
++	 * the commit path needs to grab the lock while committing the inode.
+ 	 */
+-	WARN_ON(lockdep_is_held_type(&ei->i_data_sem, 1));
++#ifdef CONFIG_LOCKDEP
++	// WARN_ON(lockdep_is_held(&ei->i_data_sem));
++#endif
+ 
+ 	while (ext4_test_inode_state(inode, EXT4_STATE_FC_COMMITTING)) {
+ #if (BITS_PER_LONG < 64)
+@@ -1030,7 +1032,9 @@ __releases(&sbi->s_fc_lock)
+ 		 * With fcd_dilist we need not loop in sbi->s_fc_q to get the
+ 		 * corresponding inode pointer
+ 		 */
+-		WARN_ON(list_empty(&fc_dentry->fcd_dilist));
++		// WARN_ON(list_empty(&fc_dentry->fcd_dilist));
++		// if (list_empty(&fc_dentry->fcd_dilist))
++		// 	continue;
+ 		ei = list_first_entry(&fc_dentry->fcd_dilist,
+ 				struct ext4_inode_info, i_fc_dilist);
+ 		inode = &ei->vfs_inode;
+@@ -1067,6 +1071,8 @@ __releases(&sbi->s_fc_lock)
+ }
+ 
+ static int ext4_fc_perform_commit(journal_t *journal)
++__acquires(fc_committing_lock)
++__releases(fc_committing_lock)
+ {
+ 	struct super_block *sb = journal->j_private;
+ 	struct ext4_sb_info *sbi = EXT4_SB(sb);
+@@ -1137,6 +1143,9 @@ static int ext4_fc_perform_commit(journal_t *journal)
+ 		ret = ext4_fc_write_inode(inode, &crc);
+ 		if (ret)
+ 			goto out;
++		spin_lock(&sbi->s_fc_lock);
++	}
++	list_for_each_entry(iter, &sbi->s_fc_q[FC_Q_MAIN], i_fc_list) {
+ 		ext4_clear_inode_state(inode, EXT4_STATE_FC_COMMITTING);
+ 		/*
+ 		 * Make sure clearing of EXT4_STATE_FC_COMMITTING is
+@@ -1149,7 +1158,6 @@ static int ext4_fc_perform_commit(journal_t *journal)
+ #else
+ 		wake_up_bit(&iter->i_flags, EXT4_STATE_FC_COMMITTING);
+ #endif
+-		spin_lock(&sbi->s_fc_lock);
+ 	}
+ 	spin_unlock(&sbi->s_fc_lock);
+ 
+diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
+index 40695a95b68e..38d1167796b1 100644
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -5420,11 +5420,17 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+ 					(attr->ia_size > 0 ? attr->ia_size - 1 : 0) >>
+ 					inode->i_sb->s_blocksize_bits);
+ 
++			/*
++			 * Since we are going to call ext4_mark_inode_dirty with
++			 * i_data_sem held, explicitly call ext4_fc_track_inode
++			 * first.
++			 */
++			ext4_fc_track_inode(handle, inode);
++			down_write(&EXT4_I(inode)->i_data_sem);
++			EXT4_I(inode)->i_disksize = attr->ia_size;
+ 			rc = ext4_mark_inode_dirty(handle, inode);
+ 			if (!error)
+ 				error = rc;
+-			down_write(&EXT4_I(inode)->i_data_sem);
+-			EXT4_I(inode)->i_disksize = attr->ia_size;
+ 
+ 			/*
+ 			 * We have to update i_size under i_data_sem together
+@@ -5743,6 +5749,9 @@ ext4_reserve_inode_write(handle_t *handle, struct inode *inode,
+ 		ext4_fc_track_inode(handle, inode);
+ 	}
+ 	ext4_std_error(inode->i_sb, err);
++	if (err)
++		ext4_fc_mark_ineligible(inode->i_sb, EXT4_FC_REASON_NOMEM, handle);
++
+ 	return err;
+ }
+ 
+-- 
+2.44.0.rc1.240.g4c46232300-goog
+

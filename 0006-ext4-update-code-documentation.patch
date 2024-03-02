@@ -1,7 +1,7 @@
-From 8303793f3817750dd5694020b3953ee26302d55c Mon Sep 17 00:00:00 2001
+From 6313ec38602affb523830f9a353f17edf76532ed Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Mon, 7 Mar 2022 22:49:37 -0800
-Subject: [PATCH 6/7] ext4: update code documentation
+Subject: [PATCH 06/11] ext4: update code documentation
 
 This patch updates code documentation to reflect the commit path changes
 made in this series.
@@ -79,5 +79,5 @@ index 7c14385a4541..269dfc4d6781 100644
  
  #include <trace/events/ext4.h>
 -- 
-2.43.0.429.g432eaa2c6b-goog
+2.44.0.rc1.240.g4c46232300-goog
 

@@ -1,7 +1,7 @@
-From a4b14a6a87ec8d8c411ebeb8f45d3d405808b4de Mon Sep 17 00:00:00 2001
+From a1b142deaa08c90bafba5cdcc0a45e6b1139ec7a Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Mon, 7 Mar 2022 09:03:28 -0800
-Subject: [PATCH 4/7] ext4: rework fast commit commit path
+Subject: [PATCH 04/11] ext4: rework fast commit commit path
 
 This patch reworks fast commit's commit path to remove locking the
 journal for the entire duration of a fast commit. Instead, we only lock
@@ -164,5 +164,5 @@ index b6c114c11b97..f243552eadad 100644
  		journal->j_fc_cleanup_callback(journal, 0, tid);
  	write_lock(&journal->j_state_lock);
 -- 
-2.43.0.429.g432eaa2c6b-goog
+2.44.0.rc1.240.g4c46232300-goog
 

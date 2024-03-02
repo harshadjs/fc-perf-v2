@@ -1,0 +1,122 @@
+From 58215449013690da1a34f4d6db904639efff9958 Mon Sep 17 00:00:00 2001
+From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
+Date: Sat, 27 Jan 2024 00:03:53 +0000
+Subject: [PATCH 09/11] Selective flushing
+
+---
+ fs/ext4/ext4.h        | 12 ++++++++++++
+ fs/ext4/ext4_jbd2.h   | 20 ++++++++++++--------
+ fs/ext4/fast_commit.c | 23 ++++++++++++++++++-----
+ 3 files changed, 42 insertions(+), 13 deletions(-)
+
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index 8d76e83c4a7e..371222823cf2 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -1741,6 +1741,13 @@ struct ext4_sb_info {
+ 					 */
+ 	struct list_head s_fc_dentry_q[2];	/* directory entry updates */
+ 	unsigned int s_fc_bytes;
++
++	/*
++	 * This flag indicates whether a full flush is needed on
++	 * next fast commit.
++	 */
++	int fc_flush_required;
++
+ 	/*
+ 	 * Main fast commit lock. This lock protects accesses to the
+ 	 * following fields:
+@@ -2902,6 +2909,11 @@ void ext4_fc_del(struct inode *inode);
+ bool ext4_fc_replay_check_excluded(struct super_block *sb, ext4_fsblk_t block);
+ void ext4_fc_replay_cleanup(struct super_block *sb);
+ int ext4_fc_commit(journal_t *journal, tid_t commit_tid);
++static inline void ext4_fc_mark_needs_flush(struct super_block *sb)
++{
++	EXT4_SB(sb)->fc_flush_required = 1;
++}
++
+ int __init ext4_fc_init_dentry_cache(void);
+ void ext4_fc_destroy_dentry_cache(void);
+ int ext4_fc_record_regions(struct super_block *sb, int ino,
+diff --git a/fs/ext4/ext4_jbd2.h b/fs/ext4/ext4_jbd2.h
+index 0c77697d5e90..e3a4f5c49b6e 100644
+--- a/fs/ext4/ext4_jbd2.h
++++ b/fs/ext4/ext4_jbd2.h
+@@ -420,19 +420,23 @@ static inline int ext4_journal_force_commit(journal_t *journal)
+ static inline int ext4_jbd2_inode_add_write(handle_t *handle,
+ 		struct inode *inode, loff_t start_byte, loff_t length)
+ {
+-	if (ext4_handle_valid(handle))
+-		return jbd2_journal_inode_ranged_write(handle,
+-				EXT4_I(inode)->jinode, start_byte, length);
+-	return 0;
++	if (!ext4_handle_valid(handle))
++		return 0;
++
++	ext4_fc_mark_needs_flush(inode->i_sb);
++	return jbd2_journal_inode_ranged_write(handle,
++			EXT4_I(inode)->jinode, start_byte, length);
+ }
+ 
+ static inline int ext4_jbd2_inode_add_wait(handle_t *handle,
+ 		struct inode *inode, loff_t start_byte, loff_t length)
+ {
+-	if (ext4_handle_valid(handle))
+-		return jbd2_journal_inode_ranged_wait(handle,
+-				EXT4_I(inode)->jinode, start_byte, length);
+-	return 0;
++	if (!ext4_handle_valid(handle))
++		return 0;
++
++	ext4_fc_mark_needs_flush(inode->i_sb);
++	return jbd2_journal_inode_ranged_wait(handle,
++			EXT4_I(inode)->jinode, start_byte, length);
+ }
+ 
+ static inline void ext4_update_inode_fsync_trans(handle_t *handle,
+diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
+index 0021b27cf329..99ccad7397f4 100644
+--- a/fs/ext4/fast_commit.c
++++ b/fs/ext4/fast_commit.c
+@@ -645,11 +645,24 @@ void ext4_fc_track_range(handle_t *handle, struct inode *inode, ext4_lblk_t star
+ static void ext4_fc_submit_bh(struct super_block *sb, bool is_tail)
+ {
+ 	blk_opf_t write_flags = REQ_SYNC;
+-	struct buffer_head *bh = EXT4_SB(sb)->s_fc_bh;
++	struct ext4_sb_info *sbi = EXT4_SB(sb);
++	struct buffer_head *bh = sbi->s_fc_bh;
++	int old = 1, new = 0;
++ 
++	if (!is_tail) {
++		/*
++		 * This commit has at least 1 non-tail block,
++		 * thus FLUSH is required.
++		 */
++		ext4_fc_mark_needs_flush(sb);
++	} else {
++		/* Use cmpxchg to ensure that no flush requrest is lost. */
++		if (cmpxchg(&sbi->fc_flush_required, old, new))
++			/* Old value was 1, so request a flush. */
++			write_flags |= REQ_PREFLUSH;
++		write_flags |= REQ_FUA;
++	}
+ 
+-	/* Add REQ_FUA | REQ_PREFLUSH only its tail */
+-	if (test_opt(sb, BARRIER) && is_tail)
+-		write_flags |= REQ_FUA | REQ_PREFLUSH;
+ 	lock_buffer(bh);
+ 	set_buffer_dirty(bh);
+ 	set_buffer_uptodate(bh);
+@@ -1086,7 +1099,7 @@ static int ext4_fc_perform_commit(journal_t *journal)
+ 	 * If file system device is different from journal device, issue a cache
+ 	 * flush before we start writing fast commit blocks.
+ 	 */
+-	if (journal->j_fs_dev != journal->j_dev)
++	if (sbi->fc_flush_required && journal->j_fs_dev != journal->j_dev)
+ 		blkdev_issue_flush(journal->j_fs_dev);
+ 
+ 	blk_start_plug(&plug);
+-- 
+2.44.0.rc1.240.g4c46232300-goog
+
