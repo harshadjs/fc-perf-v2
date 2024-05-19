@@ -1,5 +1,9 @@
 # fc-perf-v2
 
+[2024-05-19] Final ready patchset.
+Rebased on c6a6c9694aadc4c3ab8d89bdd44aed3eab1e43c6.
+Passes all the tests and formatted correctly.
+
 [2024-05-19] Contains rebase patches on ext4-dev on
 commit 26770a717cac57041d9414725e3e01dd19b08dd2.
 This near submission ready patchset passes -g log

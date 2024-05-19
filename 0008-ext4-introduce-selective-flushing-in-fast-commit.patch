@@ -1,4 +1,4 @@
-From 7e4bd9de271960f231f5c87abe1681272dbe58ce Mon Sep 17 00:00:00 2001
+From d99931e29dfe44d55ac5cda3b97d370a0ef6405d Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Sat, 27 Jan 2024 00:03:53 +0000
 Subject: [PATCH 08/10] ext4: introduce selective flushing in fast commit
@@ -82,7 +82,7 @@ index 0c77697d5e90..e3a4f5c49b6e 100644
  
  static inline void ext4_update_inode_fsync_trans(handle_t *handle,
 diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
-index 0b7064f8dfa5..6e352900a1ca 100644
+index 0b7064f8dfa5..35c89bee452c 100644
 --- a/fs/ext4/fast_commit.c
 +++ b/fs/ext4/fast_commit.c
 @@ -638,11 +638,24 @@ void ext4_fc_track_range(handle_t *handle, struct inode *inode, ext4_lblk_t star
@@ -93,7 +93,7 @@ index 0b7064f8dfa5..6e352900a1ca 100644
 +	struct ext4_sb_info *sbi = EXT4_SB(sb);
 +	struct buffer_head *bh = sbi->s_fc_bh;
 +	int old = 1, new = 0;
-+ 
++
 +	if (!is_tail) {
 +		/*
 +		 * This commit has at least 1 non-tail block,

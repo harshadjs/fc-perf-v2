@@ -1,4 +1,4 @@
-From 0ebaf7a4cbc02c6aba45fb00a8c22b2f914e4660 Mon Sep 17 00:00:00 2001
+From 19c04980ecf4cc6fff37e5bf85b7d0669bd16b67 Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Sat, 18 May 2024 23:42:21 +0000
 Subject: [PATCH 10/10] ext4: make fast commit ineligible on
@@ -17,7 +17,7 @@ Signed-off-by: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
  4 files changed, 26 insertions(+), 14 deletions(-)
 
 diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
-index 9febc77d8f56..88565c6445da 100644
+index d354839dbf7e..5ab13cb017a1 100644
 --- a/fs/ext4/fast_commit.c
 +++ b/fs/ext4/fast_commit.c
 @@ -2291,6 +2291,7 @@ static const char * const fc_ineligible_reasons[] = {
@@ -41,7 +41,7 @@ index 2fadb2c4780c..f7f85c3dd3af 100644
  };
  
 diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
-index c6405c45970e..e9bb26e14ab3 100644
+index c6405c45970e..18bab8023a16 100644
 --- a/fs/ext4/inode.c
 +++ b/fs/ext4/inode.c
 @@ -5420,7 +5420,7 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
@@ -74,9 +74,9 @@ index c6405c45970e..e9bb26e14ab3 100644
 -			iloc->bh = NULL;
 -		}
 -		ext4_fc_track_inode(handle, inode);
-+	if (err) {
++	if (err)
 +		goto out;
-+	}
++
 +	BUFFER_TRACE(iloc->bh, "get_write_access");
 +	err = ext4_journal_get_write_access(handle, inode->i_sb,
 +						iloc->bh, EXT4_JTR_NONE);
