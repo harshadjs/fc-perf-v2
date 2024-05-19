@@ -1,7 +1,7 @@
-From 211121b9c671f4fb9185601a269a747944329926 Mon Sep 17 00:00:00 2001
+From 0346e600d4524b33612a397af9a6c80af446c67e Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Thu, 17 Mar 2022 08:03:35 -0700
-Subject: [PATCH 03/11] ext4: mark inode dirty before grabbing i_data_sem in
+Subject: [PATCH 03/10] ext4: mark inode dirty before grabbing i_data_sem in
  ext4_setattr
 
 Mark inode dirty first and then grab i_data_sem in ext4_setattr().
@@ -12,10 +12,10 @@ Signed-off-by: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
-index 6d50d4223c31..2e2f36ab82bd 100644
+index aa6440992a55..26b9d3076536 100644
 --- a/fs/ext4/inode.c
 +++ b/fs/ext4/inode.c
-@@ -5417,12 +5417,12 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
+@@ -5410,12 +5410,12 @@ int ext4_setattr(struct mnt_idmap *idmap, struct dentry *dentry,
  					(attr->ia_size > 0 ? attr->ia_size - 1 : 0) >>
  					inode->i_sb->s_blocksize_bits);
  
@@ -32,5 +32,5 @@ index 6d50d4223c31..2e2f36ab82bd 100644
  			 * We have to update i_size under i_data_sem together
  			 * with i_disksize to avoid races with writeback code
 -- 
-2.44.0.rc1.240.g4c46232300-goog
+2.45.0.rc1.225.g2a3ae87e7f-goog
 

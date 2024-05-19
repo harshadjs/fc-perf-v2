@@ -1,7 +1,7 @@
-From f0462c08cbd913d12db46870178a6074de2946d3 Mon Sep 17 00:00:00 2001
+From 574a48584dce8d4ddfc4968715e32a726c2d4be4 Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Mon, 7 Mar 2022 06:03:14 -0800
-Subject: [PATCH 01/11] ext4: convert i_fc_lock to spinlock
+Subject: [PATCH 01/10] ext4: convert i_fc_lock to spinlock
 
 Convert ext4_inode_info->i_fc_lock to spinlock to avoid sleeping
 in invalid contexts.
@@ -14,10 +14,10 @@ Signed-off-by: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
  3 files changed, 17 insertions(+), 16 deletions(-)
 
 diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
-index 023571f8dd1b..80ccf4022879 100644
+index 983dad8c07ec..611b8c80d99c 100644
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
-@@ -1059,8 +1059,11 @@ struct ext4_inode_info {
+@@ -1062,8 +1062,11 @@ struct ext4_inode_info {
  	/* Fast commit wait queue for this inode */
  	wait_queue_head_t i_fc_wait;
  
@@ -126,7 +126,7 @@ index 87c009e0c59a..a1aadebfcd66 100644
  	cur_lblk_off = old_blk_size;
  	ext4_debug("will try writing %d to %d for inode %ld\n",
 diff --git a/fs/ext4/super.c b/fs/ext4/super.c
-index 91e9f961993d..9b01b57ada85 100644
+index f9a4a4e89dac..77173ec91e49 100644
 --- a/fs/ext4/super.c
 +++ b/fs/ext4/super.c
 @@ -1436,7 +1436,7 @@ static struct inode *ext4_alloc_inode(struct super_block *sb)
@@ -139,5 +139,5 @@ index 91e9f961993d..9b01b57ada85 100644
  }
  
 -- 
-2.44.0.rc1.240.g4c46232300-goog
+2.45.0.rc1.225.g2a3ae87e7f-goog
 

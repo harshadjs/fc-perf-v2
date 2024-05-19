@@ -1,8 +1,14 @@
-From 58215449013690da1a34f4d6db904639efff9958 Mon Sep 17 00:00:00 2001
+From 7e4bd9de271960f231f5c87abe1681272dbe58ce Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Sat, 27 Jan 2024 00:03:53 +0000
-Subject: [PATCH 09/11] Selective flushing
+Subject: [PATCH 08/10] ext4: introduce selective flushing in fast commit
 
+With fast commits, if the entire commit is contained within a single
+block and there isn't any data that needs a flush, we can avoid sending
+expensive cache flush to disk. Single block metadata only fast commits
+can be written using FUA to guarantee consistency.
+
+Signed-off-by: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 ---
  fs/ext4/ext4.h        | 12 ++++++++++++
  fs/ext4/ext4_jbd2.h   | 20 ++++++++++++--------
@@ -10,10 +16,10 @@ Subject: [PATCH 09/11] Selective flushing
  3 files changed, 42 insertions(+), 13 deletions(-)
 
 diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
-index 8d76e83c4a7e..371222823cf2 100644
+index 196c513f82dd..3721daea2890 100644
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
-@@ -1741,6 +1741,13 @@ struct ext4_sb_info {
+@@ -1744,6 +1744,13 @@ struct ext4_sb_info {
  					 */
  	struct list_head s_fc_dentry_q[2];	/* directory entry updates */
  	unsigned int s_fc_bytes;
@@ -27,7 +33,7 @@ index 8d76e83c4a7e..371222823cf2 100644
  	/*
  	 * Main fast commit lock. This lock protects accesses to the
  	 * following fields:
-@@ -2902,6 +2909,11 @@ void ext4_fc_del(struct inode *inode);
+@@ -2905,6 +2912,11 @@ void ext4_fc_del(struct inode *inode);
  bool ext4_fc_replay_check_excluded(struct super_block *sb, ext4_fsblk_t block);
  void ext4_fc_replay_cleanup(struct super_block *sb);
  int ext4_fc_commit(journal_t *journal, tid_t commit_tid);
@@ -76,10 +82,10 @@ index 0c77697d5e90..e3a4f5c49b6e 100644
  
  static inline void ext4_update_inode_fsync_trans(handle_t *handle,
 diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
-index 0021b27cf329..99ccad7397f4 100644
+index 0b7064f8dfa5..6e352900a1ca 100644
 --- a/fs/ext4/fast_commit.c
 +++ b/fs/ext4/fast_commit.c
-@@ -645,11 +645,24 @@ void ext4_fc_track_range(handle_t *handle, struct inode *inode, ext4_lblk_t star
+@@ -638,11 +638,24 @@ void ext4_fc_track_range(handle_t *handle, struct inode *inode, ext4_lblk_t star
  static void ext4_fc_submit_bh(struct super_block *sb, bool is_tail)
  {
  	blk_opf_t write_flags = REQ_SYNC;
@@ -108,7 +114,7 @@ index 0021b27cf329..99ccad7397f4 100644
  	lock_buffer(bh);
  	set_buffer_dirty(bh);
  	set_buffer_uptodate(bh);
-@@ -1086,7 +1099,7 @@ static int ext4_fc_perform_commit(journal_t *journal)
+@@ -1090,7 +1103,7 @@ static int ext4_fc_perform_commit(journal_t *journal)
  	 * If file system device is different from journal device, issue a cache
  	 * flush before we start writing fast commit blocks.
  	 */
@@ -118,5 +124,5 @@ index 0021b27cf329..99ccad7397f4 100644
  
  	blk_start_plug(&plug);
 -- 
-2.44.0.rc1.240.g4c46232300-goog
+2.45.0.rc1.225.g2a3ae87e7f-goog
 

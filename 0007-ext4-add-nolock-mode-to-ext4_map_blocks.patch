@@ -1,0 +1,115 @@
+From ca63afa085019cdfe19a119914a4ffc14108b422 Mon Sep 17 00:00:00 2001
+From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
+Date: Fri, 26 Jan 2024 23:14:38 +0000
+Subject: [PATCH 07/10] ext4: add nolock mode to ext4_map_blocks()
+
+Add nolock flag to ext4_map_blocks() which skips grabbing
+i_data_sem in ext4_map_blocks. In FC commit path, we first
+mark the inode as committing and thereby prevent any mutations
+on it. Thus, it should be safe to call ext4_map_blocks()
+without i_data_sem in this case. This is a workaround to
+the problem mentioned in RFC V4 version cover letter[1] of this
+patch series which pointed out that there is in incosistency between
+ext4_map_blocks() behavior when EXT4_GET_BLOCKS_CACHED_NOWAIT is
+passed. This patch gets rid of the need to call ext4_map_blocks()
+with EXT4_GET_BLOCKS_CACHED_NOWAIT and instead call it with
+EXT4_GET_BLOCKS_NOLOCK. I verified that generic/311 which failed
+in cached_nowait mode passes with nolock mode.
+
+[1] https://lwn.net/Articles/902022/
+
+Signed-off-by: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
+---
+ fs/ext4/ext4.h        |  1 +
+ fs/ext4/fast_commit.c | 16 ++++++++--------
+ fs/ext4/inode.c       | 14 ++++++++++++--
+ 3 files changed, 21 insertions(+), 10 deletions(-)
+
+diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
+index d802040e94df..196c513f82dd 100644
+--- a/fs/ext4/ext4.h
++++ b/fs/ext4/ext4.h
+@@ -720,6 +720,7 @@ enum {
+ #define EXT4_GET_BLOCKS_IO_SUBMIT		0x0400
+ 	/* Caller is in the atomic contex, find extent if it has been cached */
+ #define EXT4_GET_BLOCKS_CACHED_NOWAIT		0x0800
++#define EXT4_GET_BLOCKS_NOLOCK			0x1000
+ 
+ /*
+  * The bit position of these flags must not overlap with any of the
+diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
+index b81b0292aa59..0b7064f8dfa5 100644
+--- a/fs/ext4/fast_commit.c
++++ b/fs/ext4/fast_commit.c
+@@ -559,13 +559,6 @@ void ext4_fc_track_inode(handle_t *handle, struct inode *inode)
+ 		!list_empty(&ei->i_fc_list))
+ 		return;
+ 
+-	/*
+-	 * If we come here, we may sleep while waiting for the inode to
+-	 * commit. We shouldn't be holding i_data_sem in write mode when we go
+-	 * to sleep since the commit path needs to grab the lock while
+-	 * committing the inode.
+-	 */
+-	WARN_ON(lockdep_is_held_type(&ei->i_data_sem, 1));
+ 
+ 	while (ext4_test_inode_state(inode, EXT4_STATE_FC_COMMITTING)) {
+ #if (BITS_PER_LONG < 64)
+@@ -898,7 +891,14 @@ static int ext4_fc_write_inode_data(struct inode *inode, u32 *crc)
+ 	while (cur_lblk_off <= new_blk_size) {
+ 		map.m_lblk = cur_lblk_off;
+ 		map.m_len = new_blk_size - cur_lblk_off + 1;
+-		ret = ext4_map_blocks(NULL, inode, &map, 0);
++		/*
++		 * Given that this inode is being committed,
++		 * EXT4_STATE_FC_COMMITTING is already set on this inode.
++		 * Which means all the mutations on the inode are paused
++		 * until the commit operation is complete. Thus it is safe
++		 * call ext4_map_blocks() in no lock mode.
++		 */
++		ret = ext4_map_blocks(NULL, inode, &map, EXT4_GET_BLOCKS_NOLOCK);
+ 		if (ret < 0)
+ 			return -ECANCELED;
+ 
+diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
+index 26b9d3076536..c6405c45970e 100644
+--- a/fs/ext4/inode.c
++++ b/fs/ext4/inode.c
+@@ -546,7 +546,8 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
+ 	 * Try to see if we can get the block without requesting a new
+ 	 * file system block.
+ 	 */
+-	down_read(&EXT4_I(inode)->i_data_sem);
++	if (!(flags & EXT4_GET_BLOCKS_NOLOCK))
++		down_read(&EXT4_I(inode)->i_data_sem);
+ 	if (ext4_test_inode_flag(inode, EXT4_INODE_EXTENTS)) {
+ 		retval = ext4_ext_map_blocks(handle, inode, map, 0);
+ 	} else {
+@@ -573,7 +574,15 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
+ 		ext4_es_insert_extent(inode, map->m_lblk, map->m_len,
+ 				      map->m_pblk, status);
+ 	}
+-	up_read((&EXT4_I(inode)->i_data_sem));
++	/*
++	 * We should never call ext4_map_blocks() in nolock mode outside
++	 * of fast commit path.
++	 */
++	WARN_ON((flags & EXT4_GET_BLOCKS_NOLOCK) &&
++		!ext4_test_inode_state(inode,
++				       EXT4_STATE_FC_COMMITTING));
++	if (!(flags & EXT4_GET_BLOCKS_NOLOCK))
++		up_read((&EXT4_I(inode)->i_data_sem));
+ 
+ found:
+ 	if (retval > 0 && map->m_flags & EXT4_MAP_MAPPED) {
+@@ -614,6 +623,7 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
+ 	 * the write lock of i_data_sem, and call get_block()
+ 	 * with create == 1 flag.
+ 	 */
++	WARN_ON((flags & EXT4_GET_BLOCKS_NOLOCK) != 0);
+ 	down_write(&EXT4_I(inode)->i_data_sem);
+ 
+ 	/*
+-- 
+2.45.0.rc1.225.g2a3ae87e7f-goog
+

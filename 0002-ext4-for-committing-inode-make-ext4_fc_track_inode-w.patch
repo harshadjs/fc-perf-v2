@@ -1,7 +1,7 @@
-From bc817943f861ef4b2b34f30b82f0adf5a3b13f5f Mon Sep 17 00:00:00 2001
+From b68dd2afc6854bec7c79adb64565fa7dad826939 Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Mon, 7 Mar 2022 09:00:12 -0800
-Subject: [PATCH 02/11] ext4: for committing inode, make ext4_fc_track_inode
+Subject: [PATCH 02/10] ext4: for committing inode, make ext4_fc_track_inode
  wait
 
 If the inode that's being requested to track using ext4_fc_track_inode
@@ -103,7 +103,7 @@ index d5bd1e3a5d36..bd5778e680c0 100644
  					    EXT4_JTR_NONE);
  	if (ret)
 diff --git a/fs/ext4/inode.c b/fs/ext4/inode.c
-index 537803250ca9..6d50d4223c31 100644
+index 4bae9ccf5fe0..aa6440992a55 100644
 --- a/fs/ext4/inode.c
 +++ b/fs/ext4/inode.c
 @@ -607,6 +607,7 @@ int ext4_map_blocks(handle_t *handle, struct inode *inode,
@@ -114,7 +114,7 @@ index 537803250ca9..6d50d4223c31 100644
  	/*
  	 * New blocks allocate and/or writing to unwritten extent
  	 * will possibly result in updating i_data, so we take
-@@ -3985,6 +3986,7 @@ int ext4_punch_hole(struct file *file, loff_t offset, loff_t length)
+@@ -3978,6 +3979,7 @@ int ext4_punch_hole(struct file *file, loff_t offset, loff_t length)
  	if (stop_block > first_block) {
  		ext4_lblk_t hole_len = stop_block - first_block;
  
@@ -122,7 +122,7 @@ index 537803250ca9..6d50d4223c31 100644
  		down_write(&EXT4_I(inode)->i_data_sem);
  		ext4_discard_preallocations(inode);
  
-@@ -4138,6 +4140,7 @@ int ext4_truncate(struct inode *inode)
+@@ -4131,6 +4133,7 @@ int ext4_truncate(struct inode *inode)
  	if (err)
  		goto out_stop;
  
@@ -130,7 +130,7 @@ index 537803250ca9..6d50d4223c31 100644
  	down_write(&EXT4_I(inode)->i_data_sem);
  
  	ext4_discard_preallocations(inode);
-@@ -5734,6 +5737,7 @@ ext4_reserve_inode_write(handle_t *handle, struct inode *inode,
+@@ -5727,6 +5730,7 @@ ext4_reserve_inode_write(handle_t *handle, struct inode *inode,
  			brelse(iloc->bh);
  			iloc->bh = NULL;
  		}
@@ -139,5 +139,5 @@ index 537803250ca9..6d50d4223c31 100644
  	ext4_std_error(inode->i_sb, err);
  	return err;
 -- 
-2.44.0.rc1.240.g4c46232300-goog
+2.45.0.rc1.225.g2a3ae87e7f-goog
 

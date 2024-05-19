@@ -1,7 +1,7 @@
-From 8268dd64c8135c66820ea3d0f3dc6a39565c2bc0 Mon Sep 17 00:00:00 2001
+From c27d40a65b79fc1e94cc4c15b60908e176ffb110 Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Mon, 7 Mar 2022 07:54:17 -0800
-Subject: [PATCH 05/11] ext4: drop i_fc_updates from inode fc info
+Subject: [PATCH 05/10] ext4: drop i_fc_updates from inode fc info
 
 The new logic introduced in this series does not require tracking number
 of active handles open on an inode. So, drop it.
@@ -14,10 +14,10 @@ Reviewed-by: Jan Kara <jack@suse.cz>
  2 files changed, 73 deletions(-)
 
 diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
-index 80ccf4022879..9a9d71bc5df5 100644
+index 611b8c80d99c..d802040e94df 100644
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
-@@ -1053,9 +1053,6 @@ struct ext4_inode_info {
+@@ -1056,9 +1056,6 @@ struct ext4_inode_info {
  	/* End of lblk range that needs to be committed in this fast commit */
  	ext4_lblk_t i_fc_lblk_len;
  
@@ -27,7 +27,7 @@ index 80ccf4022879..9a9d71bc5df5 100644
  	/* Fast commit wait queue for this inode */
  	wait_queue_head_t i_fc_wait;
  
-@@ -2900,8 +2897,6 @@ void __ext4_fc_track_create(handle_t *handle, struct inode *inode,
+@@ -2903,8 +2900,6 @@ void __ext4_fc_track_create(handle_t *handle, struct inode *inode,
  void ext4_fc_track_create(handle_t *handle, struct dentry *dentry);
  void ext4_fc_track_inode(handle_t *handle, struct inode *inode);
  void ext4_fc_mark_ineligible(struct super_block *sb, int reason, handle_t *handle);
@@ -37,7 +37,7 @@ index 80ccf4022879..9a9d71bc5df5 100644
  bool ext4_fc_replay_check_excluded(struct super_block *sb, ext4_fsblk_t block);
  void ext4_fc_replay_cleanup(struct super_block *sb);
 diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
-index 291edd119d37..7c14385a4541 100644
+index 3aca5b20aac5..ecbbcaf78598 100644
 --- a/fs/ext4/fast_commit.c
 +++ b/fs/ext4/fast_commit.c
 @@ -201,32 +201,6 @@ void ext4_fc_init_inode(struct inode *inode)
@@ -123,5 +123,5 @@ index 291edd119d37..7c14385a4541 100644
   * Remove inode from fast commit list. If the inode is being committed
   * we wait until inode commit is done.
 -- 
-2.44.0.rc1.240.g4c46232300-goog
+2.45.0.rc1.225.g2a3ae87e7f-goog
 

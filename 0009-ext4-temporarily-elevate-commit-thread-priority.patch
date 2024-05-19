@@ -1,8 +1,15 @@
-From e21a200a7d7ca38698581da14d1f004a51bcadd3 Mon Sep 17 00:00:00 2001
+From fb2bb1c55f105a2d9883bde939828620caca9b03 Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Sat, 27 Jan 2024 00:18:05 +0000
-Subject: [PATCH 10/11] Temporary lift in journal priority
+Subject: [PATCH 09/10] ext4: temporarily elevate commit thread priority
 
+Unlike JBD2 based full commits, there is no dedicated journal thread
+for fast commits. Thus to reduce scheduling delays between IO
+submission and completion, temporarily elevate the committer thread's
+priority to match the configured priority of the JBD2 journal
+thread.
+
+Signed-off-by: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 ---
  fs/ext4/ext4.h        |  4 +++-
  fs/ext4/fast_commit.c | 13 +++++++++++++
@@ -10,10 +17,10 @@ Subject: [PATCH 10/11] Temporary lift in journal priority
  3 files changed, 18 insertions(+), 4 deletions(-)
 
 diff --git a/fs/ext4/ext4.h b/fs/ext4/ext4.h
-index 371222823cf2..39a89fe2d68b 100644
+index 3721daea2890..d52df8a85271 100644
 --- a/fs/ext4/ext4.h
 +++ b/fs/ext4/ext4.h
-@@ -2284,10 +2284,12 @@ static inline int ext4_forced_shutdown(struct super_block *sb)
+@@ -2287,10 +2287,12 @@ static inline int ext4_forced_shutdown(struct super_block *sb)
  #define EXT4_DEFM_NODELALLOC	0x0800
  
  /*
@@ -28,10 +35,10 @@ index 371222823cf2..39a89fe2d68b 100644
  /*
   * Minimum number of groups in a flexgroup before we separate out
 diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
-index 99ccad7397f4..7492793e7748 100644
+index 6e352900a1ca..9febc77d8f56 100644
 --- a/fs/ext4/fast_commit.c
 +++ b/fs/ext4/fast_commit.c
-@@ -1201,6 +1201,7 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
+@@ -1205,6 +1205,7 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
  	int subtid = atomic_read(&sbi->s_fc_subtid);
  	int status = EXT4_FC_STATUS_OK, fc_bufs_before = 0;
  	ktime_t start_time, commit_time;
@@ -39,7 +46,7 @@ index 99ccad7397f4..7492793e7748 100644
  
  	if (!test_opt2(sb, JOURNAL_FAST_COMMIT))
  		return jbd2_complete_transaction(journal, commit_tid);
-@@ -1238,6 +1239,16 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
+@@ -1242,6 +1243,16 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
  		goto fallback;
  	}
  
@@ -56,7 +63,7 @@ index 99ccad7397f4..7492793e7748 100644
  	fc_bufs_before = (sbi->s_fc_bytes + bsize - 1) / bsize;
  	ret = ext4_fc_perform_commit(journal);
  	if (ret < 0) {
-@@ -1252,6 +1263,7 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
+@@ -1256,6 +1267,7 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
  	}
  	atomic_inc(&sbi->s_fc_subtid);
  	ret = jbd2_fc_end_commit(journal);
@@ -64,7 +71,7 @@ index 99ccad7397f4..7492793e7748 100644
  	/*
  	 * weight the commit time higher than the average time so we
  	 * don't react too strongly to vast changes in the commit time
-@@ -1261,6 +1273,7 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
+@@ -1265,6 +1277,7 @@ int ext4_fc_commit(journal_t *journal, tid_t commit_tid)
  	return ret;
  
  fallback:
@@ -73,10 +80,10 @@ index 99ccad7397f4..7492793e7748 100644
  	ext4_fc_update_stats(sb, status, 0, 0, commit_tid);
  	return ret;
 diff --git a/fs/ext4/super.c b/fs/ext4/super.c
-index 9b01b57ada85..eea2a41c2b83 100644
+index 77173ec91e49..18d9d2631559 100644
 --- a/fs/ext4/super.c
 +++ b/fs/ext4/super.c
-@@ -1834,7 +1834,6 @@ static const struct fs_parameter_spec ext4_param_specs[] = {
+@@ -1833,7 +1833,6 @@ static const struct fs_parameter_spec ext4_param_specs[] = {
  	{}
  };
  
@@ -84,7 +91,7 @@ index 9b01b57ada85..eea2a41c2b83 100644
  
  #define MOPT_SET	0x0001
  #define MOPT_CLEAR	0x0002
-@@ -5214,7 +5213,7 @@ static int __ext4_fill_super(struct fs_context *fc, struct super_block *sb)
+@@ -5211,7 +5210,7 @@ static int __ext4_fill_super(struct fs_context *fc, struct super_block *sb)
  
  	/* Set defaults for the variables that will be set during parsing */
  	if (!(ctx->spec & EXT4_SPEC_JOURNAL_IOPRIO))
@@ -93,7 +100,7 @@ index 9b01b57ada85..eea2a41c2b83 100644
  
  	sbi->s_inode_readahead_blks = EXT4_DEF_INODE_READAHEAD_BLKS;
  	sbi->s_sectors_written_start =
-@@ -6475,7 +6474,7 @@ static int __ext4_remount(struct fs_context *fc, struct super_block *sb)
+@@ -6471,7 +6470,7 @@ static int __ext4_remount(struct fs_context *fc, struct super_block *sb)
  			ctx->journal_ioprio =
  				sbi->s_journal->j_task->io_context->ioprio;
  		else
@@ -103,5 +110,5 @@ index 9b01b57ada85..eea2a41c2b83 100644
  	}
  
 -- 
-2.44.0.rc1.240.g4c46232300-goog
+2.45.0.rc1.225.g2a3ae87e7f-goog
 

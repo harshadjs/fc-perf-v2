@@ -1,7 +1,7 @@
-From 6313ec38602affb523830f9a353f17edf76532ed Mon Sep 17 00:00:00 2001
+From 9f8836f1384b6939d1cb5c272de77b0ef1d07add Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Mon, 7 Mar 2022 22:49:37 -0800
-Subject: [PATCH 06/11] ext4: update code documentation
+Subject: [PATCH 06/10] ext4: update code documentation
 
 This patch updates code documentation to reflect the commit path changes
 made in this series.
@@ -13,7 +13,7 @@ Reviewed-by: Jan Kara <jack@suse.cz>
  1 file changed, 26 insertions(+), 13 deletions(-)
 
 diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
-index 7c14385a4541..269dfc4d6781 100644
+index ecbbcaf78598..b81b0292aa59 100644
 --- a/fs/ext4/fast_commit.c
 +++ b/fs/ext4/fast_commit.c
 @@ -49,14 +49,21 @@
@@ -79,5 +79,5 @@ index 7c14385a4541..269dfc4d6781 100644
  
  #include <trace/events/ext4.h>
 -- 
-2.44.0.rc1.240.g4c46232300-goog
+2.45.0.rc1.225.g2a3ae87e7f-goog
 

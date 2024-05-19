@@ -1,7 +1,7 @@
-From a1b142deaa08c90bafba5cdcc0a45e6b1139ec7a Mon Sep 17 00:00:00 2001
+From ac095a7c734c4bf0c4dc34877c4b32b755ae9b14 Mon Sep 17 00:00:00 2001
 From: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
 Date: Mon, 7 Mar 2022 09:03:28 -0800
-Subject: [PATCH 04/11] ext4: rework fast commit commit path
+Subject: [PATCH 04/10] ext4: rework fast commit commit path
 
 This patch reworks fast commit's commit path to remove locking the
 journal for the entire duration of a fast commit. Instead, we only lock
@@ -9,14 +9,15 @@ the journal while marking all the eligible inodes as "committing". This
 allows handles to make progress in parallel with the fast commit.
 
 Signed-off-by: Harshad Shirwadkar <harshadshirwadkar@gmail.com>
-Reviewed-by: Jan Kara <jack@suse.cz>
 ---
- fs/ext4/fast_commit.c | 71 ++++++++++++++++++++++++++++---------------
+ fs/ext4/fast_commit.c | 75 ++++++++++++++++++++++++++++---------------
  fs/jbd2/journal.c     |  2 --
- 2 files changed, 46 insertions(+), 27 deletions(-)
+ fs/jbd2/transaction.c | 41 +++++++++++++++--------
+ include/linux/jbd2.h  |  1 +
+ 4 files changed, 79 insertions(+), 40 deletions(-)
 
 diff --git a/fs/ext4/fast_commit.c b/fs/ext4/fast_commit.c
-index fa93ce399440..291edd119d37 100644
+index fa93ce399440..3aca5b20aac5 100644
 --- a/fs/ext4/fast_commit.c
 +++ b/fs/ext4/fast_commit.c
 @@ -290,20 +290,30 @@ void ext4_fc_del(struct inode *inode)
@@ -87,12 +88,16 @@ index fa93ce399440..291edd119d37 100644
  		spin_unlock(&sbi->s_fc_lock);
  		ret = jbd2_submit_inode_data(journal, ei->jinode);
  		if (ret)
-@@ -1124,6 +1119,16 @@ static int ext4_fc_perform_commit(journal_t *journal)
+@@ -1124,6 +1119,20 @@ static int ext4_fc_perform_commit(journal_t *journal)
  	int ret = 0;
  	u32 crc = 0;
  
-+	/* Lock the journal */
-+	jbd2_journal_lock_updates(journal);
++	/*
++	 * Wait for all the handles of the current transaction to complete
++	 * and then lock the journal. Since this is essentially the commit
++	 * path, we don't need to wait for reserved handles.
++	 */
++	jbd2_journal_lock_updates_no_rsv(journal);
 +	spin_lock(&sbi->s_fc_lock);
 +	list_for_each_entry(iter, &sbi->s_fc_q[FC_Q_MAIN], i_fc_list) {
 +		ext4_set_inode_state(&iter->vfs_inode,
@@ -104,7 +109,7 @@ index fa93ce399440..291edd119d37 100644
  	ret = ext4_fc_submit_inode_data_all(journal);
  	if (ret)
  		return ret;
-@@ -1174,6 +1179,18 @@ static int ext4_fc_perform_commit(journal_t *journal)
+@@ -1174,6 +1183,18 @@ static int ext4_fc_perform_commit(journal_t *journal)
  		ret = ext4_fc_write_inode(inode, &crc);
  		if (ret)
  			goto out;
@@ -123,7 +128,7 @@ index fa93ce399440..291edd119d37 100644
  		spin_lock(&sbi->s_fc_lock);
  	}
  	spin_unlock(&sbi->s_fc_lock);
-@@ -1311,13 +1328,17 @@ static void ext4_fc_cleanup(journal_t *journal, int full, tid_t tid)
+@@ -1311,13 +1332,17 @@ static void ext4_fc_cleanup(journal_t *journal, int full, tid_t tid)
  	spin_lock(&sbi->s_fc_lock);
  	list_for_each_entry_safe(iter, iter_n, &sbi->s_fc_q[FC_Q_MAIN],
  				 i_fc_list) {
@@ -163,6 +168,83 @@ index b6c114c11b97..f243552eadad 100644
  	if (journal->j_fc_cleanup_callback)
  		journal->j_fc_cleanup_callback(journal, 0, tid);
  	write_lock(&journal->j_state_lock);
+diff --git a/fs/jbd2/transaction.c b/fs/jbd2/transaction.c
+index cb0b8d6fc0c6..e5953d912ade 100644
+--- a/fs/jbd2/transaction.c
++++ b/fs/jbd2/transaction.c
+@@ -865,25 +865,15 @@ void jbd2_journal_wait_updates(journal_t *journal)
+ 	}
+ }
+ 
+-/**
+- * jbd2_journal_lock_updates () - establish a transaction barrier.
+- * @journal:  Journal to establish a barrier on.
+- *
+- * This locks out any further updates from being started, and blocks
+- * until all existing updates have completed, returning only once the
+- * journal is in a quiescent state with no updates running.
+- *
+- * The journal lock should not be held on entry.
+- */
+-void jbd2_journal_lock_updates(journal_t *journal)
++static void __jbd2_journal_lock_updates(journal_t *journal, bool wait_on_rsv)
+ {
+ 	jbd2_might_wait_for_commit(journal);
+ 
+ 	write_lock(&journal->j_state_lock);
+ 	++journal->j_barrier_count;
+ 
+-	/* Wait until there are no reserved handles */
+-	if (atomic_read(&journal->j_reserved_credits)) {
++	if (wait_on_rsv && atomic_read(&journal->j_reserved_credits)) {
++		/* Wait until there are no reserved handles */
+ 		write_unlock(&journal->j_state_lock);
+ 		wait_event(journal->j_wait_reserved,
+ 			   atomic_read(&journal->j_reserved_credits) == 0);
+@@ -904,6 +894,31 @@ void jbd2_journal_lock_updates(journal_t *journal)
+ 	mutex_lock(&journal->j_barrier);
+ }
+ 
++/**
++ * jbd2_journal_lock_updates () - establish a transaction barrier.
++ * @journal:  Journal to establish a barrier on.
++ *
++ * This locks out any further updates from being started, and blocks
++ * until all existing updates have completed, returning only once the
++ * journal is in a quiescent state with no updates running.
++ *
++ * The journal lock should not be held on entry.
++ */
++void jbd2_journal_lock_updates(journal_t *journal)
++{
++	__jbd2_journal_lock_updates(journal, true);
++}
++
++/**
++ * jbd2_journal_lock_updates_no_rsv - same as above, but doesn't
++ * 	wait for reserved handles to finish.
++ * @journal: Journal to establish barrier on.
++ */
++void jbd2_journal_lock_updates_no_rsv(journal_t *journal)
++{
++	__jbd2_journal_lock_updates(journal, false);
++}
++
+ /**
+  * jbd2_journal_unlock_updates () - release barrier
+  * @journal:  Journal to release the barrier on.
+diff --git a/include/linux/jbd2.h b/include/linux/jbd2.h
+index 7479f64c0939..4d1d773edfb9 100644
+--- a/include/linux/jbd2.h
++++ b/include/linux/jbd2.h
+@@ -1531,6 +1531,7 @@ bool jbd2_journal_try_to_free_buffers(journal_t *journal, struct folio *folio);
+ extern int	 jbd2_journal_stop(handle_t *);
+ extern int	 jbd2_journal_flush(journal_t *journal, unsigned int flags);
+ extern void	 jbd2_journal_lock_updates (journal_t *);
++extern void 	 jbd2_journal_lock_updates_no_rsv(journal_t *journal);
+ extern void	 jbd2_journal_unlock_updates (journal_t *);
+ 
+ void jbd2_journal_wait_updates(journal_t *);
 -- 
-2.44.0.rc1.240.g4c46232300-goog
+2.45.0.rc1.225.g2a3ae87e7f-goog
 
